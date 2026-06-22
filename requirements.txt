@@ -1,2 +1,3 @@
 fastapi
-pillow
+pillow>=10.0.0
+uvicorn
