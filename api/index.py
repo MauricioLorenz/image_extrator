@@ -112,9 +112,19 @@ async def extract_metadata(request: Request):
             try:
                 body = await _fetch_blob_full(blob_url)
                 result = await loop.run_in_executor(None, _extract, body)
-            except Exception:
+            except Exception as exc:
                 await _delete_blob(blob_url)
-                raise HTTPException(status_code=422, detail="Invalid or unsupported image format")
+                # Temporary debug fields to diagnose the blob-fetch path — remove once resolved.
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "Invalid or unsupported image format",
+                        "debug_exception": str(exc),
+                        "debug_size_bytes": len(body),
+                        "debug_first_bytes_hex": body[:32].hex(),
+                        "debug_first_bytes_text": body[:200].decode("utf-8", errors="replace"),
+                    },
+                )
         await _delete_blob(blob_url)
         return JSONResponse(result)
 
