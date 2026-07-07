@@ -116,19 +116,20 @@ async def extract_metadata(request: Request):
                 result = await loop.run_in_executor(None, _extract, body)
             except Exception as exc:
                 await _delete_blob(blob_url)
-                # Temporary debug fields to diagnose the blob-fetch path — remove once resolved.
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error": "Invalid or unsupported image format",
-                        "debug_exception": str(exc),
-                        "debug_status_code": resp.status_code,
-                        "debug_response_headers": dict(resp.headers),
-                        "debug_size_bytes": len(body),
-                        "debug_first_bytes_hex": body[:32].hex(),
-                        "debug_first_bytes_text": body[:200].decode("utf-8", errors="replace"),
-                    },
-                )
+                # Temporary debug fields to diagnose the blob-fetch path — remove once
+                # resolved. Every field is built defensively so a problem gathering
+                # debug info can never itself turn this into a bare 500.
+                debug = {"error": "Invalid or unsupported image format"}
+                try:
+                    debug["debug_exception"] = str(exc)
+                    debug["debug_size_bytes"] = len(body)
+                    debug["debug_first_bytes_hex"] = body[:32].hex()
+                    debug["debug_first_bytes_text"] = body[:200].decode("utf-8", errors="replace")
+                    debug["debug_status_code"] = resp.status_code
+                    debug["debug_response_headers"] = {str(k): str(v) for k, v in resp.headers.items()}
+                except Exception as debug_exc:
+                    debug["debug_meta_error"] = str(debug_exc)
+                raise HTTPException(status_code=422, detail=debug)
         await _delete_blob(blob_url)
         return JSONResponse(result)
 
