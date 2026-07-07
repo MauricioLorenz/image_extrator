@@ -34,8 +34,10 @@ def _extract(body: bytes) -> dict:
         "mode": img.mode,
         "width_px": img.size[0],
         "height_px": img.size[1],
-        "dpi_x": round(dpi_raw[0], 2) if dpi_raw else None,
-        "dpi_y": round(dpi_raw[1], 2) if dpi_raw else None,
+        # dpi values from EXIF are often IFDRational/Fraction — round() on those
+        # returns another Fraction (not JSON-serializable), so cast to float first.
+        "dpi_x": round(float(dpi_raw[0]), 2) if dpi_raw else None,
+        "dpi_y": round(float(dpi_raw[1]), 2) if dpi_raw else None,
         "size_bytes": len(body),
     }
 
@@ -114,22 +116,9 @@ async def extract_metadata(request: Request):
                 resp = await _fetch_blob_full(blob_url)
                 body = resp.content
                 result = await loop.run_in_executor(None, _extract, body)
-            except Exception as exc:
+            except Exception:
                 await _delete_blob(blob_url)
-                # Temporary debug fields to diagnose the blob-fetch path — remove once
-                # resolved. Every field is built defensively so a problem gathering
-                # debug info can never itself turn this into a bare 500.
-                debug = {"error": "Invalid or unsupported image format"}
-                try:
-                    debug["debug_exception"] = str(exc)
-                    debug["debug_size_bytes"] = len(body)
-                    debug["debug_first_bytes_hex"] = body[:32].hex()
-                    debug["debug_first_bytes_text"] = body[:200].decode("utf-8", errors="replace")
-                    debug["debug_status_code"] = resp.status_code
-                    debug["debug_response_headers"] = {str(k): str(v) for k, v in resp.headers.items()}
-                except Exception as debug_exc:
-                    debug["debug_meta_error"] = str(debug_exc)
-                raise HTTPException(status_code=422, detail=debug)
+                raise HTTPException(status_code=422, detail="Invalid or unsupported image format")
         await _delete_blob(blob_url)
         return JSONResponse(result)
 
