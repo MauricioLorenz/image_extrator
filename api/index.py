@@ -1,30 +1,30 @@
-from contextlib import asynccontextmanager
-from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import io
+import logging
+import traceback
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from PIL import Image
 
-MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
-executor: ThreadPoolExecutor = None
+MAX_BODY_SIZE = 4 * 1024 * 1024  # Vercel's own request body limit is ~4.5 MB
+
+logger = logging.getLogger("image_extrator")
+
+app = FastAPI(title="Image Metadata Extractor")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global executor
-    executor = ThreadPoolExecutor(max_workers=4)
-    yield
-    executor.shutdown(wait=False)
-
-
-app = FastAPI(title="Image Metadata Extractor", lifespan=lifespan)
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error on %s: %s", request.url.path, traceback.format_exc())
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 def _extract(body: bytes) -> dict:
+    # Metadata only needs the header, so we deliberately skip img.load() (full pixel
+    # decode) — also means Pillow's decompression-bomb guard never applies here,
+    # which is fine since pixel data is never touched.
     img = Image.open(io.BytesIO(body))
-    img.load()
     dpi_raw = img.info.get("dpi")
     return {
         "format": img.format or "UNKNOWN",
@@ -43,11 +43,11 @@ async def extract_metadata(request: Request):
     if not body:
         raise HTTPException(status_code=400, detail="No image data received")
     if len(body) > MAX_BODY_SIZE:
-        raise HTTPException(status_code=413, detail="Image too large (max 10 MB)")
+        raise HTTPException(status_code=413, detail="Image too large (max 4 MB)")
 
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(executor, _extract, body)
+        result = await loop.run_in_executor(None, _extract, body)
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid or unsupported image format")
 
