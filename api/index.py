@@ -45,19 +45,19 @@ def _blob_auth_headers() -> dict:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-async def _fetch_blob_header(url: str) -> bytes:
+async def _fetch_blob_header(url: str) -> httpx.Response:
     headers = {**_blob_auth_headers(), "Range": f"bytes=0-{HEADER_FETCH_BYTES - 1}"}
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(url, headers=headers)
         resp.raise_for_status()
-        return resp.content
+        return resp
 
 
-async def _fetch_blob_full(url: str) -> bytes:
+async def _fetch_blob_full(url: str) -> httpx.Response:
     async with httpx.AsyncClient(timeout=25) as client:
         resp = await client.get(url, headers=_blob_auth_headers())
         resp.raise_for_status()
-        return resp.content
+        return resp
 
 
 async def _delete_blob(url: str) -> None:
@@ -95,7 +95,7 @@ async def extract_metadata(request: Request):
             raise HTTPException(status_code=400, detail="No image data received")
 
         try:
-            body = await _fetch_blob_header(blob_url)
+            resp = await _fetch_blob_header(blob_url)
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
                 status_code=502,
@@ -103,6 +103,7 @@ async def extract_metadata(request: Request):
             )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"Failed to fetch blob: {exc}")
+        body = resp.content
 
         try:
             result = await loop.run_in_executor(None, _extract, body)
@@ -110,7 +111,8 @@ async def extract_metadata(request: Request):
             # Header-only fetch wasn't enough (e.g. TIFF keeps its IFD at the
             # end of the file) — retry with the full object before giving up.
             try:
-                body = await _fetch_blob_full(blob_url)
+                resp = await _fetch_blob_full(blob_url)
+                body = resp.content
                 result = await loop.run_in_executor(None, _extract, body)
             except Exception as exc:
                 await _delete_blob(blob_url)
@@ -120,6 +122,8 @@ async def extract_metadata(request: Request):
                     detail={
                         "error": "Invalid or unsupported image format",
                         "debug_exception": str(exc),
+                        "debug_status_code": resp.status_code,
+                        "debug_response_headers": dict(resp.headers),
                         "debug_size_bytes": len(body),
                         "debug_first_bytes_hex": body[:32].hex(),
                         "debug_first_bytes_text": body[:200].decode("utf-8", errors="replace"),
