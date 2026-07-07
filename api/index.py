@@ -94,7 +94,16 @@ async def extract_metadata(request: Request):
         if not blob_url:
             raise HTTPException(status_code=400, detail="No image data received")
 
-        body = await _fetch_blob_header(blob_url)
+        try:
+            body = await _fetch_blob_header(blob_url)
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch blob (status {exc.response.status_code}): {exc.response.text[:200]}",
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch blob: {exc}")
+
         try:
             result = await loop.run_in_executor(None, _extract, body)
         except Exception:
