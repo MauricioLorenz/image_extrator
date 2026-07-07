@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import traceback
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -63,9 +64,14 @@ async def _fetch_blob_full(url: str) -> httpx.Response:
 
 
 async def _delete_blob(url: str) -> None:
+    # Deletes go through the same upload host as PUT (blob.vercel-storage.com),
+    # not the per-store read domain — DELETE on the read URL returns 405.
+    pathname = urlparse(url).path.lstrip("/")
+    delete_url = f"https://blob.vercel-storage.com/{pathname}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.delete(url, headers=_blob_auth_headers())
+            resp = await client.delete(delete_url, headers=_blob_auth_headers())
+            resp.raise_for_status()
     except Exception:
         logger.warning("Failed to delete blob %s", url, exc_info=True)
 
