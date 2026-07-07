@@ -63,9 +63,21 @@ async def _fetch_blob_full(url: str) -> httpx.Response:
 
 
 async def _delete_blob(url: str) -> None:
+    # Vercel Blob's delete isn't a plain HTTP DELETE on the blob's own URL —
+    # it's a POST with a JSON list of URLs to a dedicated endpoint on the
+    # same host PUT uses.
+    headers = {
+        **_blob_auth_headers(),
+        "Content-Type": "application/json",
+        "X-API-Version": "7",
+    }
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.delete(url, headers=_blob_auth_headers())
+            resp = await client.post(
+                "https://blob.vercel-storage.com/delete",
+                headers=headers,
+                json={"urls": [url]},
+            )
             resp.raise_for_status()
     except Exception:
         logger.warning("Failed to delete blob %s", url, exc_info=True)
