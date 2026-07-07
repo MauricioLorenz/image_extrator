@@ -61,7 +61,17 @@ async def extract_metadata(request: Request):
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(None, _extract, body)
-    except Exception:
-        raise HTTPException(status_code=422, detail="Invalid or unsupported image format")
+    except Exception as exc:
+        # Temporary debug fields (error + first bytes) to diagnose a specific
+        # n8n integration issue — remove once resolved.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "Invalid or unsupported image format",
+                "debug_exception": str(exc),
+                "debug_first_bytes_hex": body[:16].hex(),
+                "debug_size_bytes": len(body),
+            },
+        )
 
     return JSONResponse(result)
