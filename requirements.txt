@@ -2,3 +2,4 @@ fastapi
 pillow>=10.0.0
 uvicorn
 python-multipart
+httpx
