@@ -37,9 +37,22 @@ def _extract(body: bytes) -> dict:
     }
 
 
+async def _read_upload(request: Request) -> bytes:
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        # n8n's "n8n Binary File" body option wraps the file in a multipart
+        # envelope instead of sending raw bytes — unwrap it here.
+        form = await request.form()
+        for value in form.values():
+            if hasattr(value, "read"):
+                return await value.read()
+        return b""
+    return await request.body()
+
+
 @app.post("/metadata")
 async def extract_metadata(request: Request):
-    body = await request.body()
+    body = await _read_upload(request)
     if not body:
         raise HTTPException(status_code=400, detail="No image data received")
     if len(body) > MAX_BODY_SIZE:
